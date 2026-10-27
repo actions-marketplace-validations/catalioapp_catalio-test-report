@@ -97,8 +97,8 @@ run_clean() {
 
 @test "one POST per report, carrying the run's commit, branch, PR, link and version" {
   mkdir reports
-  printf '<testsuites/>\n' > reports/ui.xml
-  printf '<testsuites/>\n' > reports/unit-p2.xml
+  printf '<testsuites name="ui"/>\n' > reports/ui.xml
+  printf '<testsuites name="unit"/>\n' > reports/unit-p2.xml
   sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   start_stub
   run_clean CATALIO_REPORTS="reports/*.xml" CATALIO_CLIENT_ID=client CATALIO_CLIENT_SECRET='s3cr&t=+' \
@@ -110,10 +110,11 @@ run_clean() {
 
   common="\"app_version\": \"0.1.0\", \"branch\": \"feature/x\", \"commit_sha\": \"${sha}\""
   url='"external_run_url": "https://github.com/acme/widgets/actions/runs/1234"'
-  rest='"pr_number": "3967", "repo": "acme/widgets", "source": "github-actions"'
+  rest='"pr_number": "3967", "repo": "acme/widgets"'
+  src='"source": "github-actions"'
   token='{"authorization": null, "fields": {"client_id": "client", "client_secret": "s3cr&t=+", "grant_type": "client_credentials"}, "path": "/oauth/token"}'
-  ui="{\"authorization\": \"Bearer tok\", \"fields\": {${common}, \"external_run_id\": \"1234-linux-reports-ui\", ${url}, ${rest}, \"suite\": \"ui\"}, \"path\": \"/api/v1/test-runs\"}"
-  unit="{\"authorization\": \"Bearer tok\", \"fields\": {${common}, \"external_run_id\": \"1234-linux-reports-unit-p2\", ${url}, ${rest}, \"suite\": \"unit-p2\"}, \"path\": \"/api/v1/test-runs\"}"
+  ui="{\"authorization\": \"Bearer tok\", \"fields\": {${common}, \"external_run_id\": \"1234-linux-reports/ui\", ${url}, ${rest}, \"report\": \"ui.xml:<testsuites name=\\\"ui\\\"/>\", ${src}, \"suite\": \"ui\"}, \"path\": \"/api/v1/test-runs\"}"
+  unit="{\"authorization\": \"Bearer tok\", \"fields\": {${common}, \"external_run_id\": \"1234-linux-reports/unit-p2\", ${url}, ${rest}, \"report\": \"unit-p2.xml:<testsuites name=\\\"unit\\\"/>\", ${src}, \"suite\": \"unit-p2\"}, \"path\": \"/api/v1/test-runs\"}"
 
   [ "$(cat requests.jsonl)" = "$(printf '%s\n%s\n%s' "${token}" "${ui}" "${unit}")" ]
   [ "$(cat summary.md)" = 'Catalio: posted 2 of 2 report(s) (app version `0.1.0`).' ]
@@ -149,7 +150,7 @@ run_clean() {
     CATALIO_APP_VERSION=0.1.0 CATALIO_API_BASE_URL="${BASE_URL}" GITHUB_RUN_ID=7
   [ "$status" -eq 0 ]
   ids="$(grep -o '"external_run_id": "[^"]*"' requests.jsonl)"
-  [ "${ids}" = "$(printf '%s\n%s' '"external_run_id": "7-integration-junit"' '"external_run_id": "7-unit-junit"')" ]
+  [ "${ids}" = "$(printf '%s\n%s' '"external_run_id": "7-integration/junit"' '"external_run_id": "7-unit/junit"')" ]
 }
 
 @test "the client secret and bearer token never appear in curl's arguments" {

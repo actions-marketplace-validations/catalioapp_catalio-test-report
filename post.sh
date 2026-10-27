@@ -146,12 +146,11 @@ posted=0
 for xml in "${xml_files[@]}"; do
   stem="$(basename "${xml}" .xml)"
   suite="${CATALIO_SUITE:-${stem}}"
-  # The report's path, not just its name, so unit/junit.xml and
-  # integration/junit.xml in one job stay separate runs.
+  # The report's path as is, not just its name, so unit/junit.xml and
+  # integration/junit.xml in one job stay separate runs. Rewriting the slashes
+  # would let a-b/junit.xml and a/b/junit.xml collide.
   report_key="${xml#./}"
-  report_key="${report_key#/}"
   report_key="${report_key%.xml}"
-  report_key="${report_key//\//-}"
   external_run_id="${GITHUB_RUN_ID:-local}-${CATALIO_RUN_KEY:+${CATALIO_RUN_KEY}-}${report_key}"
   log "posting ${xml} suite=${suite} app_version=${app_version}"
   http_code="$(

@@ -3,8 +3,8 @@
 Usage: python3 stub_server.py DIR
 
 Writes the port it bound to DIR/port, then appends one JSON line per request to
-DIR/requests.jsonl: {"path", "authorization", "fields"}. Multipart fields are
-recorded except the report file itself. Response codes come from
+DIR/requests.jsonl: {"path", "authorization", "fields"}. The report part is
+recorded as "<filename>:<contents>". Response codes come from
 STUB_TOKEN_STATUS and STUB_INGEST_STATUS (default 200 and 202).
 """
 
@@ -26,8 +26,13 @@ def multipart_fields(content_type, body):
     fields = {}
     for part in message.iter_parts():
         name = part.get_param("name", header="content-disposition")
-        if name != "report":
-            fields[name] = part.get_content().strip()
+        content = part.get_content()
+        if isinstance(content, bytes):
+            content = content.decode()
+        if name == "report":
+            # Filename and body, so a test can tell a missing or swapped report.
+            content = part.get_filename() + ":" + content
+        fields[name] = content.strip()
     return fields
 
 
