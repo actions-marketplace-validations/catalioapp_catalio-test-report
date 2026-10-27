@@ -9,7 +9,25 @@ setup() {
 }
 
 teardown() {
+  [ -n "${STUB_PID:-}" ] && kill "${STUB_PID}" 2> /dev/null
   rm -rf "${DIR}"
+}
+
+# Starts test/stub_server.py on a free port and sets BASE_URL to it.
+start_stub() {
+  python3 "$(dirname "${BATS_TEST_FILENAME}")/stub_server.py" "${DIR}" &
+  STUB_PID=$!
+  for _ in $(seq 50); do
+    [ -s "${DIR}/port" ] && break
+    sleep 0.1
+  done
+  BASE_URL="http://127.0.0.1:$(cat "${DIR}/port")"
+}
+
+# Runs post.sh with only the environment a test names, so the GITHUB_* values
+# of the CI job running these tests can't leak in.
+run_clean() {
+  run env -i PATH="${PATH}" HOME="${HOME}" no_proxy='*' NO_PROXY='*' "$@" bash "${SCRIPT}"
 }
 
 @test "exits 0 when no report matches" {
@@ -56,4 +74,47 @@ teardown() {
     CATALIO_CLIENT_ID= CATALIO_CLIENT_SECRET= bash "${SCRIPT}"
   [ "$status" -eq 0 ]
   [ "$(cat summary.md)" = "Catalio: credentials not set, 1 report(s) not posted." ]
+}
+
+@test "exits 0 when the token endpoint returns HTTP 500" {
+  mkdir reports && printf '<testsuites/>\n' > reports/unit.xml
+  STUB_TOKEN_STATUS=500 start_stub
+  run_clean CATALIO_REPORTS="reports/*.xml" CATALIO_CLIENT_ID=client CATALIO_CLIENT_SECRET=secret \
+    CATALIO_APP_VERSION=0.1.0 CATALIO_API_BASE_URL="${BASE_URL}"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"token exchange failed (HTTP 500); skipping ingest"* ]]
+}
+
+@test "exits 0 when ingest returns HTTP 500 after a token" {
+  mkdir reports && printf '<testsuites/>\n' > reports/unit.xml
+  STUB_INGEST_STATUS=500 start_stub
+  run_clean CATALIO_REPORTS="reports/*.xml" CATALIO_CLIENT_ID=client CATALIO_CLIENT_SECRET=secret \
+    CATALIO_APP_VERSION=0.1.0 CATALIO_API_BASE_URL="${BASE_URL}" GITHUB_RUN_ID=99
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"token exchange failed"* ]]
+  [[ "$output" == *"catalio-test-report: HTTP 500 for reports/unit.xml"* ]]
+}
+
+@test "one POST per report, carrying the run's commit, branch, PR, link and version" {
+  mkdir reports
+  printf '<testsuites/>\n' > reports/ui.xml
+  printf '<testsuites/>\n' > reports/unit-p2.xml
+  sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  start_stub
+  run_clean CATALIO_REPORTS="reports/*.xml" CATALIO_CLIENT_ID=client CATALIO_CLIENT_SECRET='s3cr&t=+' \
+    CATALIO_APP_VERSION=0.1.0 CATALIO_API_BASE_URL="${BASE_URL}" CATALIO_RUN_KEY=linux \
+    GITHUB_SHA="${sha}" GITHUB_PR_NUMBER=3967 GITHUB_HEAD_REF=feature/x \
+    GITHUB_REPOSITORY=acme/widgets GITHUB_RUN_ID=1234 GITHUB_SERVER_URL=https://github.com \
+    GITHUB_STEP_SUMMARY="${DIR}/summary.md"
+  [ "$status" -eq 0 ]
+
+  common="\"app_version\": \"0.1.0\", \"branch\": \"feature/x\", \"commit_sha\": \"${sha}\""
+  url='"external_run_url": "https://github.com/acme/widgets/actions/runs/1234"'
+  rest='"pr_number": "3967", "repo": "acme/widgets", "source": "github-actions"'
+  token='{"authorization": null, "fields": {"client_id": "client", "client_secret": "s3cr&t=+", "grant_type": "client_credentials"}, "path": "/oauth/token"}'
+  ui="{\"authorization\": \"Bearer tok\", \"fields\": {${common}, \"external_run_id\": \"1234-linux-ui\", ${url}, ${rest}, \"suite\": \"ui\"}, \"path\": \"/api/v1/test-runs\"}"
+  unit="{\"authorization\": \"Bearer tok\", \"fields\": {${common}, \"external_run_id\": \"1234-linux-unit-p2\", ${url}, ${rest}, \"suite\": \"unit-p2\"}, \"path\": \"/api/v1/test-runs\"}"
+
+  [ "$(cat requests.jsonl)" = "$(printf '%s\n%s\n%s' "${token}" "${ui}" "${unit}")" ]
+  [ "$(cat summary.md)" = 'Catalio: posted 2 of 2 report(s) (app version `0.1.0`).' ]
 }
