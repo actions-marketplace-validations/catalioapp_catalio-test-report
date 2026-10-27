@@ -17,7 +17,7 @@ inputs:
     required: false
   reports:
     description:
-      Whitespace-separated globs for the JUnit XML files to post. `**` recurses.
+      Globs for the JUnit XML files to post, separated by spaces or newlines. `**` recurses.
     required: false
     default: '**/TEST-*.xml **/junit*.xml'
   suite:
@@ -34,7 +34,7 @@ inputs:
     default: ''
   run-key:
     description: >-
-      Extra key for the run id, for matrix jobs whose reports share a file name
+      Extra key for the run id, for matrix jobs that write reports to the same path
       (for example the matrix OS or partition).
     required: false
     default: ''

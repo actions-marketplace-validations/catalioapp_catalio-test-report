@@ -32,10 +32,11 @@ client_id="${CATALIO_CLIENT_ID:-}"
 client_secret="${CATALIO_CLIENT_SECRET:-}"
 patterns="${CATALIO_REPORTS:-**/TEST-*.xml **/junit*.xml}"
 
-# Split on whitespace with globbing off, then expand each pattern once, so a
-# file matched by two patterns is posted once.
+# Split on any whitespace, newlines included (a YAML `|` block puts one glob per
+# line), with globbing off; then expand each pattern once, so a file matched by
+# two patterns is posted once.
 set -f
-read -r -a pattern_list <<< "${patterns}"
+read -r -a pattern_list <<< "${patterns//$'\n'/ }"
 set +f
 
 declare -A seen=()
@@ -43,7 +44,7 @@ xml_files=()
 for pattern in "${pattern_list[@]}"; do
   for file in ${pattern}; do
     case "${file}" in
-      node_modules/* | */node_modules/* | deps/* | _build/*) continue ;;
+      node_modules/* | */node_modules/* | deps/* | */deps/* | _build/* | */_build/*) continue ;;
     esac
     if [ -f "${file}" ] && [ -z "${seen[${file}]:-}" ]; then
       seen["${file}"]=1
@@ -115,31 +116,47 @@ access_token() {
   fi
 }
 
-token_body="$(mktemp)"
+# The secret and the bearer token go to curl through 0600 files, never as
+# arguments, which any local user can read from the process list.
+work="$(umask 077 && mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+printf '%s' "${client_secret}" > "${work}/secret"
+
+# Bounded, so an endpoint that accepts the connection and then stalls can't
+# hold the job open.
+curl_opts=(-sS --connect-timeout 10 --max-time 120)
+
 token_http="$(
-  curl -sS -o "${token_body}" -w '%{http_code}' -X POST "${base_url}/oauth/token" \
+  curl "${curl_opts[@]}" -o "${work}/token.json" -w '%{http_code}' -X POST "${base_url}/oauth/token" \
     -H "Accept: application/json" \
     --data-urlencode "grant_type=client_credentials" \
     --data-urlencode "client_id=${client_id}" \
-    --data-urlencode "client_secret=${client_secret}"
+    --data-urlencode "client_secret@${work}/secret"
 )"
-token="$(access_token "${token_body}")"
-rm -f "${token_body}"
+token="$(access_token "${work}/token.json")"
 if [ -z "${token}" ]; then
   log "token exchange failed (HTTP ${token_http}); skipping ingest"
   summary "Catalio: token exchange failed (HTTP ${token_http}), ${#xml_files[@]} report(s) not posted."
   exit 0
 fi
 
+printf 'Authorization: Bearer %s\n' "${token}" > "${work}/auth-header"
+
 posted=0
 for xml in "${xml_files[@]}"; do
   stem="$(basename "${xml}" .xml)"
   suite="${CATALIO_SUITE:-${stem}}"
-  external_run_id="${GITHUB_RUN_ID:-local}-${CATALIO_RUN_KEY:+${CATALIO_RUN_KEY}-}${stem}"
+  # The report's path, not just its name, so unit/junit.xml and
+  # integration/junit.xml in one job stay separate runs.
+  report_key="${xml#./}"
+  report_key="${report_key#/}"
+  report_key="${report_key%.xml}"
+  report_key="${report_key//\//-}"
+  external_run_id="${GITHUB_RUN_ID:-local}-${CATALIO_RUN_KEY:+${CATALIO_RUN_KEY}-}${report_key}"
   log "posting ${xml} suite=${suite} app_version=${app_version}"
   http_code="$(
-    curl -sS -o /dev/null -w '%{http_code}' -X POST "${base_url}/api/v1/test-runs" \
-      -H "Authorization: Bearer ${token}" \
+    curl "${curl_opts[@]}" -o /dev/null -w '%{http_code}' -X POST "${base_url}/api/v1/test-runs" \
+      -H "@${work}/auth-header" \
       -F "suite=${suite}" \
       -F "source=github-actions" \
       -F "repo=${GITHUB_REPOSITORY:-}" \
