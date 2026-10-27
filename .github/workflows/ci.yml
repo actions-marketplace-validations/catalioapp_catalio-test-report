@@ -8,7 +8,92 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    name: Lint & Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Pinned PyPI wheels of each tool, so a new upstream release can't change
+      # what passes without a PR here.
+      - name: Install linters
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/lint"
+          "${RUNNER_TEMP}/lint/bin/pip" install --quiet \
+            shellcheck-py==0.11.0.1 \
+            shfmt-py==4.2.0 \
+            actionlint-py==1.7.12.25 \
+            zizmor==1.25.2
+          echo "${RUNNER_TEMP}/lint/bin" >> "$GITHUB_PATH"
+
+      - name: ShellCheck
+        run: shellcheck post.sh
+
+      # Formatting comes from .editorconfig.
+      - name: shfmt
+        run: shfmt -d post.sh test/post.bats
+
+      - name: actionlint
+        run: actionlint
+
+      # Workflow and action security: template injection, credential
+      # persistence, unpinned actions, excessive permissions.
+      - name: zizmor
+        run: zizmor --offline --min-severity low .
+
+  secret-scan:
+    name: Secret Scanning (Betterleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Betterleaks (pinned + checksum-verified)
+        env:
+          BL_VERSION: '1.6.1'
+          BL_SHA256: 'fbefc700a0bd4522cc952dd2a8f259cdb80526d7e60114aca19bb2d6fdc80f81'
+        run: |
+          set -euo pipefail
+          base="https://github.com/betterleaks/betterleaks/releases/download/v${BL_VERSION}"
+          asset="betterleaks_${BL_VERSION}_linux_x64.tar.gz"
+          curl -fsSL --retry 3 -o "${asset}" "${base}/${asset}"
+          echo "${BL_SHA256}  ${asset}" | sha256sum -c -
+          tar -xzf "${asset}" betterleaks
+          sudo install -m 0755 betterleaks /usr/local/bin/betterleaks
+          betterleaks version
+
+      - name: Scan full history
+        run: |
+          betterleaks git \
+            --redact \
+            --report-format sarif \
+            --report-path betterleaks.sarif \
+            --exit-code 1 \
+            .
+
+      # The scan's exit code is the gate; this only adds annotations.
+      - name: Upload findings to GitHub Security
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: betterleaks.sarif
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -17,9 +102,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: ShellCheck
-        run: shellcheck post.sh
 
       # bats-core publishes no signatures for its archives, so the checksum pin
       # is the only integrity signal. Rotate version and hash together.

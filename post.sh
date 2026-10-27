@@ -21,7 +21,7 @@ log() { printf 'catalio-test-report: %s\n' "$*" >&2; }
 
 summary() {
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY}" 2>/dev/null
+    printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY}" 2> /dev/null
   fi
 }
 
@@ -66,7 +66,7 @@ fi
 
 # Prints the first "version" string value in a JSON or Elixir project file.
 file_version() {
-  sed -n -E "$2" "$1" 2>/dev/null | head -n 1
+  sed -n -E "$2" "$1" 2> /dev/null | head -n 1
 }
 
 detect_app_version() {
@@ -76,7 +76,7 @@ detect_app_version() {
   fi
 
   local described
-  described="$(git describe --tags 2>/dev/null)"
+  described="$(git describe --tags 2> /dev/null)"
   if [ -n "${described}" ]; then
     printf '%s' "${described}"
     return
@@ -108,8 +108,8 @@ fi
 
 # jq when the runner has it; a sed fallback keeps self-hosted runners without jq working.
 access_token() {
-  if command -v jq >/dev/null 2>&1; then
-    jq -r '.access_token // empty' "$1" 2>/dev/null
+  if command -v jq > /dev/null 2>&1; then
+    jq -r '.access_token // empty' "$1" 2> /dev/null
   else
     sed -n -E 's/.*"access_token"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$1"
   fi
