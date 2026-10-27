@@ -1,0 +1,64 @@
+name: Catalio Test Report
+description:
+  Post JUnit XML test results to Catalio so acceptance-criterion coverage
+  reflects what CI ran.
+author: Catalio
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  client-id:
+    description:
+      Client ID of a Catalio API credential scoped to this repository.
+    required: false
+  client-secret:
+    description: Client secret of that credential.
+    required: false
+  reports:
+    description:
+      Globs for the JUnit XML files to post, separated by spaces or newlines. `**` recurses.
+    required: false
+    default: '**/TEST-*.xml **/junit*.xml'
+  suite:
+    description: >-
+      Suite name sent with every report (unit, integration, ui, e2e). Defaults
+      to each report's file name, which Catalio maps to a suite.
+    required: false
+    default: ''
+  app-version:
+    description: >-
+      Version the run tested. Defaults to the tag being built, then `git
+      describe --tags`, then package.json or mix.exs, then "unknown".
+    required: false
+    default: ''
+  run-key:
+    description: >-
+      Extra key for the run id, for matrix jobs that write reports to the same path
+      (for example the matrix OS or partition).
+    required: false
+    default: ''
+  base-url:
+    description: Catalio base URL.
+    required: false
+    default: https://app.catalio.ai
+
+runs:
+  using: composite
+  steps:
+    - name: Post JUnit reports to Catalio
+      shell: bash
+      env:
+        CATALIO_CLIENT_ID: ${{ inputs.client-id }}
+        CATALIO_CLIENT_SECRET: ${{ inputs.client-secret }}
+        CATALIO_REPORTS: ${{ inputs.reports }}
+        CATALIO_SUITE: ${{ inputs.suite }}
+        CATALIO_APP_VERSION: ${{ inputs.app-version }}
+        CATALIO_RUN_KEY: ${{ inputs.run-key }}
+        CATALIO_API_BASE_URL: ${{ inputs.base-url }}
+        # A PR's coverage joins on its head commit, not the merge commit CI builds.
+        GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_HEAD_REF: ${{ github.head_ref }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "${ACTION_PATH}/post.sh"
