@@ -41,7 +41,7 @@ inputs:
   base-url:
     description: Catalio base URL.
     required: false
-    default: https://app.catalio.ai
+    default: https://catalio.ai
 
 runs:
   using: composite

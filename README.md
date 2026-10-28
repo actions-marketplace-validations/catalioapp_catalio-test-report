@@ -32,7 +32,7 @@ The step never fails your build. If Catalio is unreachable, the credential is wr
 | `suite`         | file name                     | `unit`, `integration`, `ui` or `e2e`. Unset, each file's name is sent and anything unrecognised is recorded as `e2e`        |
 | `app-version`   | detected                      | The tag being built, then `git describe --tags`, then the `version` in `package.json` or `mix.exs`, then `unknown`          |
 | `run-key`       |                               | Added to the run id. Set it in matrix jobs that write reports to the same path, or the second job's results replace the first's |
-| `base-url`      | `https://app.catalio.ai`      | Your Catalio URL                                                                                                            |
+| `base-url`      | `https://catalio.ai`          | Your Catalio URL                                                                                                            |
 
 Commit, branch, pull request number and a link back to the run come from the workflow context. On `pull_request` events the PR's head commit is used, not the merge commit GitHub builds.
 
