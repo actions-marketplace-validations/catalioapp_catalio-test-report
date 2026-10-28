@@ -12,7 +12,7 @@
 #                          mix.exs, then "unknown"
 #   CATALIO_RUN_KEY        optional; disambiguates matrix jobs whose reports share
 #                          a file name
-#   CATALIO_API_BASE_URL   default https://app.catalio.ai
+#   CATALIO_API_BASE_URL   default https://catalio.ai
 # plus the usual GITHUB_* variables for commit, branch, PR and run link.
 set +e
 shopt -s nullglob globstar
@@ -26,7 +26,7 @@ summary() {
 }
 
 base_url="${CATALIO_API_BASE_URL:-}"
-base_url="${base_url:-https://app.catalio.ai}"
+base_url="${base_url:-https://catalio.ai}"
 base_url="${base_url%/}"
 client_id="${CATALIO_CLIENT_ID:-}"
 client_secret="${CATALIO_CLIENT_SECRET:-}"
